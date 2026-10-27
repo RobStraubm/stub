@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<title>Belegscanner</title>
+<title>Stub</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="/icon.png">
@@ -107,6 +107,12 @@
   .tip { margin:-10px 4px 0; font-size:11.5px; color:var(--ink2); }
   .tip:empty { display:none; }
 
+  .scanner-chip { display:flex; align-items:center; gap:8px; width:100%; margin-top:-8px; padding:7px 10px; border:none; border-radius:9px;
+    background:transparent; font-size:12.5px; color:var(--ink2); text-align:left; transition:background .12s; }
+  .scanner-chip:hover { background:var(--field); }
+  .scanner-chip:active { background:color-mix(in srgb, var(--ink) 10%, transparent); }
+  .scanner-chip b { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; color:var(--ink); }
+  .scanner-chip span { color:var(--blue); }
   .sect { font-size:11px; font-weight:600; letter-spacing:.02em; color:var(--ink3); text-transform:uppercase; margin:0 12px 6px; }
   .group { background:var(--group); border-radius:12px; box-shadow:var(--lift); }
 
@@ -215,6 +221,20 @@
     box-shadow:0 1px 3px rgba(0,0,0,.25), 0 0 0 .5px rgba(0,0,0,.04); transition:transform .3s var(--ease); }
   .switch:checked { background:var(--green); }
   .switch:checked::after { transform:translateX(16px); }
+  .ghead { display:flex; align-items:center; justify-content:space-between; margin:0 4px 6px 14px; font-size:11px; font-weight:600;
+    letter-spacing:.02em; color:var(--ink3); text-transform:uppercase; }
+  .ghead .btn { height:24px; padding:0 10px; font-size:12px; text-transform:none; letter-spacing:0; }
+  .opt-row.pick { width:100%; border:none; background:transparent; text-align:left; border-radius:0; }
+  .opt-row.pick:first-child { border-radius:12px 12px 0 0; } .opt-row.pick:last-child { border-radius:0 0 12px 12px; }
+  .opt-row.pick:only-child { border-radius:12px; }
+  .opt-row.pick:hover { background:color-mix(in srgb, var(--ink) 4%, transparent); }
+  .opt-row.pick:active { background:color-mix(in srgb, var(--ink) 8%, transparent); }
+  .opt-row.pick b { font-weight:500; }
+  .opt-row.pick .check { width:16px; height:16px; color:var(--blue); visibility:hidden; }
+  .opt-row.pick.on .check { visibility:visible; }
+  .opt-row.note { font-size:12px; color:var(--ink2); }
+  .opt-row.note.off { color:var(--orange); }
+  #toast.info::before { content:"i"; background:var(--blue); font-family:Georgia, serif; font-style:italic; }
   .dlg-foot { display:flex; justify-content:flex-end; margin-top:16px; }
 
   /* ---------- Zuschneiden: dunkler Bearbeitungsmodus */
@@ -272,13 +292,13 @@
 </head>
 <body>
 <header>
-  <div class="brand"><img src="/icon.png" alt="">Belegscanner</div>
+  <div class="brand"><img src="/icon.png" alt="">Stub</div>
   <div class="folder"><button class="path" id="choose" title="Ablageordner ändern">
     <svg class="sym" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><b id="folder"></b></button></div>
   <button class="tool opt" id="open">Im Finder zeigen</button>
   <button class="tool" id="settings" title="Einstellungen">
     <svg class="sym" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Einstellungen</button>
-  <button class="tool" id="quit" title="Belegscanner beenden">Beenden</button>
+  <button class="tool" id="quit" title="Stub beenden">Beenden</button>
 </header>
 
 <main>
@@ -296,6 +316,9 @@
       <button id="m_multi">Mehrere auf dem Glas</button>
     </div>
     <p class="tip" id="tip"></p>
+    <button class="scanner-chip" id="scanner_chip" title="Scanner wählen">
+      <svg class="sym" viewBox="0 0 24 24"><path d="M3 14h18v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM5 14l2-8h10l2 8M7 17h4"/></svg>
+      <b id="scanner_name"></b><span>Ändern</span></button>
 
     <div id="form">
       <div class="status" id="status"></div>
@@ -336,8 +359,11 @@
     <label class="opt-row"><span>In Farbe scannen<small>Aus = Graustufen, kleinere Dateien</small></span><input type="checkbox" class="switch" id="c_color"></label>
     <label class="opt-row"><span>Beleg per Claude analysieren<small>Das Belegbild wird an Anthropic gesendet. Aus = nur lokale Mustererkennung.</small></span><input type="checkbox" class="switch" id="c_ki"></label>
   </div>
+  <div class="ghead">Scanner <button class="btn" id="sc_find">Suchen</button></div>
+  <div class="group" id="sc_list"></div>
   <div class="group">
-    <label class="opt-row"><span>Scanner-Adresse</span><input type="text" id="c_scanner" spellcheck="false"></label>
+    <label class="opt-row"><span>Automatisch wechseln<small>Ist der Scanner nicht erreichbar (z.B. unterwegs oder im Büro), wird ein anderer im Netz gesucht.</small></span><input type="checkbox" class="switch" id="c_auto"></label>
+    <label class="opt-row"><span>Adresse von Hand</span><input type="text" id="c_scanner" spellcheck="false"></label>
   </div>
   <div class="dlg-foot"><button class="btn solid" id="dlg_close">Fertig</button></div>
 </dialog>
@@ -370,10 +396,10 @@ async function post(path, data = {}) {
     const j = await r.json();
     if (j.error) toast(j.error);
     return j;
-  } catch (e) { toast("Belegscanner antwortet nicht – bitte neu starten."); return {}; }
+  } catch (e) { toast("Stub antwortet nicht – bitte neu starten."); return {}; }
 }
-function toast(msg) {
-  $("toast").textContent = msg; $("toast").classList.add("show");
+function toast(msg, info = false) {
+  $("toast").textContent = msg; $("toast").classList.toggle("info", info); $("toast").classList.add("show");
   clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("show"), 7000);
 }
 $("toast").onclick = () => $("toast").classList.remove("show");
@@ -391,7 +417,8 @@ function render() {
   const c = state.config;
   // \u200E: Pfad bleibt bei der Kuerzung von links (direction:rtl) in Lese-Reihenfolge
   $("folder").textContent = "\u200E" + c.base_dir.replace(/^\/Users\/[^/]+/, "~") + "/" + state.today + "\u200E";
-  if (!$("dlg").open) { $("c_scanner").value = c.scanner; $("c_dpi").value = c.dpi; $("c_color").checked = c.color; $("c_ki").checked = c.ki; }
+  $("scanner_name").textContent = state.scanner_label;
+  if (!$("dlg").open) { $("c_scanner").value = c.scanner; $("c_auto").checked = c.auto_switch !== false; $("c_dpi").value = c.dpi; $("c_color").checked = c.color; $("c_ki").checked = c.ki; }
   $("m_single").classList.toggle("on", !c.multi); $("m_multi").classList.toggle("on", c.multi);
   $("tip").textContent = c.multi ? "Belege mit mindestens 3 cm Abstand zueinander und 1 cm zum Glasrand auflegen – jeder wird eine eigene Datei." : "";
 
@@ -452,6 +479,8 @@ async function scan(appendTo) {
   const r = await post("/api/scan", appendTo ? {append_to: appendTo} : {});
   busy = false;
   if (r.ids && r.ids.length) sel = r.ids[0];
+  if (r.info) toast(r.info, true);
+  if (r.choose) openSettings();
   await refresh();
 }
 
@@ -473,12 +502,48 @@ $("choose").onclick = async () => { await post("/api/choose_folder"); refresh();
 $("open").onclick = () => post("/api/open_folder");
 $("m_single").onclick = () => setCfg({multi: false});
 $("m_multi").onclick = () => setCfg({multi: true});
-$("settings").onclick = () => $("dlg").showModal();
+// Scannerwahl: gefundene und bekannte Scanner; ein Klick stellt sofort um
+const CHECK = '<svg class="sym check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>';
+function scannerRow(html, cls = "note") {
+  const d = document.createElement("div"); d.className = "opt-row " + cls; d.innerHTML = html; $("sc_list").appendChild(d);
+}
+async function findScanners() {
+  $("sc_find").disabled = true;
+  $("sc_list").innerHTML = "";
+  scannerRow('<i class="spin"></i><span>Suche Scanner im Netz…</span>');
+  const r = await post("/api/discover");
+  $("sc_find").disabled = false;
+  $("sc_list").innerHTML = "";
+  for (const sc of r.scanners || []) {
+    const b = document.createElement("button");
+    b.className = "opt-row pick" + (sc.current ? " on" : "");
+    b.innerHTML = `<span><b></b><small></small></span>${CHECK}`;
+    b.querySelector("b").textContent = sc.name;
+    b.querySelector("small").textContent = sc.found ? (sc.known ? "Im Netz · schon benutzt" : "Im Netz gefunden") : "Gerade nicht erreichbar";
+    b.onclick = async () => {
+      await post("/api/config", {scanner: sc.addr, scanner_name: sc.name});
+      await refresh();
+      $("c_scanner").value = state.config.scanner;
+      $("sc_list").querySelectorAll(".pick").forEach(x => x.classList.toggle("on", x === b));
+    };
+    $("sc_list").appendChild(b);
+  }
+  if (!(r.scanners || []).length) scannerRow("<span>Kein Scanner gefunden. Ist der Mac im selben Netz wie der Drucker?</span>");
+  for (const name of r.off || []) {
+    const d = document.createElement("span");
+    d.textContent = `„${name}“ könnte scannen, aber das Scannen übers Netzwerk (AirPrint-Scan/eSCL) ist dort ausgeschaltet – der Administrator kann es in der Druckerverwaltung einschalten.`;
+    scannerRow(""); $("sc_list").lastChild.classList.add("off"); $("sc_list").lastChild.appendChild(d);
+  }
+}
+function openSettings() { if (!$("dlg").open) $("dlg").showModal(); findScanners(); }
+$("settings").onclick = openSettings;
+$("scanner_chip").onclick = openSettings;
+$("sc_find").onclick = findScanners;
 $("dlg_close").onclick = () => $("dlg").close();
-$("dlg").addEventListener("close", () => setCfg({dpi: +$("c_dpi").value, color: $("c_color").checked, ki: $("c_ki").checked, scanner: $("c_scanner").value}));
+$("dlg").addEventListener("close", () => setCfg({dpi: +$("c_dpi").value, color: $("c_color").checked, ki: $("c_ki").checked, scanner: $("c_scanner").value, auto_switch: $("c_auto").checked}));
 $("quit").onclick = async () => {
   await saveFields(); stopped = true; await post("/api/quit");
-  document.querySelector("main").innerHTML = '<div class="empty" style="grid-column:1/-1; padding:80px 0"><h2>Belegscanner beendet</h2>Dieses Fenster kannst du schließen.</div>';
+  document.querySelector("main").innerHTML = '<div class="empty" style="grid-column:1/-1; padding:80px 0"><h2>Stub beendet</h2>Dieses Fenster kannst du schließen.</div>';
 };
 for (const f of FIELDS) {
   $("f_" + f).addEventListener("change", saveFields);

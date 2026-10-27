@@ -4,3 +4,4 @@ pymupdf==1.28.2
 pyobjc-core==12.2.2
 pyobjc-framework-Cocoa==12.2.2
 pyobjc-framework-Vision==12.2.2
+zeroconf==0.151.5

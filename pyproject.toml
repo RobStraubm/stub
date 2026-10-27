@@ -1,0 +1,20 @@
+[project]
+name = "stub"
+version = "1.0.0"
+description = "Scan receipts over AirScan, crop them, read them with Claude and file them as searchable PDFs."
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.11"
+authors = [{ name = "Robert Straubmüller" }]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
