@@ -1,0 +1,6 @@
+numpy==2.4.6
+pillow==12.3.0
+pymupdf==1.28.2
+pyobjc-core==12.2.2
+pyobjc-framework-Cocoa==12.2.2
+pyobjc-framework-Vision==12.2.2

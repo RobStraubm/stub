@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Belegscanner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/icon.png">
+<style>
+  /* Farben im Stil der macOS-Systemfarben; Materialien = halbtransparente Flaechen mit Unschaerfe */
+  :root {
+    --win:#ececee; --canvas:#e3e3e6; --group:#ffffff; --field:rgba(0,0,0,.045);
+    --ink:#1d1d1f; --ink2:rgba(29,29,31,.62); --ink3:rgba(29,29,31,.38);
+    --sep:rgba(0,0,0,.09); --hair:rgba(0,0,0,.12);
+    --blue:#0071e3; --blue-tint:rgba(0,113,227,.11); --green:#28a745; --orange:#c76a00; --orange-tint:rgba(255,159,10,.14); --red:#e0352b;
+    --bar:rgba(246,246,248,.72); --sheet:rgba(250,250,252,.86);
+    --paper-shadow:0 1px 1px rgba(0,0,0,.06), 0 6px 14px rgba(0,0,0,.08), 0 24px 60px rgba(0,0,0,.12);
+    --lift:0 1px 2px rgba(0,0,0,.05), 0 0 0 .5px rgba(0,0,0,.06);
+    --ease:cubic-bezier(.32,.72,0,1);  /* kritisch gedaempft, kein Ueberschwingen */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --win:#1e1e20; --canvas:#161618; --group:#2a2a2d; --field:rgba(255,255,255,.07);
+      --ink:#f5f5f7; --ink2:rgba(245,245,247,.62); --ink3:rgba(245,245,247,.36);
+      --sep:rgba(255,255,255,.09); --hair:rgba(255,255,255,.14);
+      --blue:#0a84ff; --blue-tint:rgba(10,132,255,.2); --green:#32d74b; --orange:#ff9f0a; --orange-tint:rgba(255,159,10,.16); --red:#ff453a;
+      --bar:rgba(36,36,38,.72); --sheet:rgba(40,40,43,.86);
+      --paper-shadow:0 1px 1px rgba(0,0,0,.3), 0 8px 18px rgba(0,0,0,.35), 0 28px 70px rgba(0,0,0,.45);
+      --lift:0 0 0 .5px rgba(255,255,255,.06);
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    :root { --bar:var(--win); --sheet:var(--group); }
+  }
+  @media (prefers-contrast: more) {
+    :root { --sep:rgba(127,127,127,.45); --hair:rgba(127,127,127,.6); --ink2:var(--ink); }
+  }
+
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--win); color:var(--ink); font:14px/1.42 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    letter-spacing:-.006em; -webkit-font-smoothing:antialiased; }
+  button, input, select { font:inherit; color:inherit; letter-spacing:inherit; }
+  button { cursor:default; -webkit-tap-highlight-color:transparent; }
+  :focus-visible { outline:3px solid color-mix(in srgb, var(--blue) 55%, transparent); outline-offset:1px; border-radius:8px; }
+  svg.sym { width:16px; height:16px; flex:none; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ---------- Werkzeugleiste */
+  header { position:sticky; top:0; z-index:10; height:52px; display:flex; align-items:center; gap:6px; padding:0 14px 0 18px;
+    background:var(--bar); backdrop-filter:blur(24px) saturate(180%); -webkit-backdrop-filter:blur(24px) saturate(180%);
+    box-shadow:0 .5px 0 var(--sep); }
+  .brand { display:flex; align-items:center; gap:9px; font-weight:600; font-size:15px; letter-spacing:-.016em; }
+  .brand img { width:24px; height:24px; border-radius:6px; }
+  .folder { flex:1; min-width:0; display:flex; justify-content:center; padding:0 12px; }
+  .path { display:inline-flex; align-items:center; gap:7px; max-width:min(520px, 100%); height:28px; padding:0 12px; border:none; border-radius:7px;
+    background:var(--field); font-size:12.5px; color:var(--ink2); transition:background .15s; }
+  .path b { color:var(--ink); font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:left; }
+  .path:hover { background:color-mix(in srgb, var(--ink) 9%, transparent); }
+  .tool { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 10px; border:none; border-radius:7px; background:transparent;
+    font-size:13px; color:var(--ink2); text-decoration:none; white-space:nowrap; transition:background .12s, color .12s; }
+  .tool:hover { background:var(--field); color:var(--ink); }
+  .tool:active, .path:active { background:color-mix(in srgb, var(--ink) 13%, transparent); }
+
+  /* ---------- Layout: Leinwand links, Inspektor rechts */
+  main { display:grid; grid-template-columns:minmax(0, 1fr) 372px; min-height:calc(100vh - 52px); }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; } header .tool.opt { display:none; } }
+
+  #stage { position:sticky; top:52px; height:calc(100vh - 52px); overflow:hidden; background:var(--canvas); box-shadow:inset -.5px 0 0 var(--sep); }
+  @media (max-width: 900px) { #stage { position:relative; top:0; height:62vh; } }
+  #pages { height:100%; overflow:auto; display:flex; flex-direction:column; align-items:center; gap:22px; padding:36px 28px 48px; }
+  #pages img { display:block; max-width:min(100%, 600px); background:#fff; border-radius:3px; box-shadow:var(--paper-shadow);
+    animation:arrive .5s var(--ease) both; }
+  @keyframes arrive { from { opacity:0; transform:translateY(18px) scale(.985); } }
+  .pagecrop { margin-top:-10px; }
+
+  .empty { margin:auto; text-align:center; color:var(--ink2); max-width:300px; font-size:13.5px; }
+  .empty .glyph { width:76px; height:76px; margin:0 auto 18px; border-radius:20px; display:grid; place-items:center; color:var(--ink3);
+    background:var(--group); box-shadow:var(--lift), 0 10px 30px rgba(0,0,0,.06); }
+  .empty h2 { margin:0 0 6px; color:var(--ink); font-size:20px; font-weight:600; letter-spacing:-.022em; line-height:1.2; }
+  kbd { font:500 11.5px -apple-system, system-ui, sans-serif; padding:1px 6px; border-radius:5px; background:var(--group); box-shadow:var(--lift), 0 1px 0 var(--hair); }
+
+  /* Scan-Fortschritt: ruhiges Licht, das ueber die Leinwand faehrt */
+  #beam { display:none; position:absolute; inset:0; pointer-events:none; background:color-mix(in srgb, var(--canvas) 45%, transparent); }
+  #beam::after { content:""; position:absolute; left:0; right:0; height:38%; top:-38%;
+    background:linear-gradient(to bottom, transparent, color-mix(in srgb, var(--blue) 14%, transparent) 80%, color-mix(in srgb, var(--blue) 55%, transparent) 99%, transparent);
+    animation:sweep 2.4s var(--ease) infinite; }
+  #beam span { position:absolute; left:50%; bottom:28px; transform:translateX(-50%); display:flex; align-items:center; gap:8px; height:32px; padding:0 15px;
+    border-radius:999px; background:var(--sheet); backdrop-filter:blur(20px) saturate(180%); -webkit-backdrop-filter:blur(20px) saturate(180%);
+    box-shadow:var(--lift), 0 8px 24px rgba(0,0,0,.12); font-size:13px; font-weight:500; }
+  body.scanning #beam { display:block; }
+  @keyframes sweep { to { top:100%; } }
+
+  /* ---------- Inspektor */
+  aside { display:flex; flex-direction:column; gap:18px; min-width:0; padding:20px 18px 28px; }
+  #scan { position:relative; width:100%; padding:14px 16px 13px; border:none; border-radius:14px; background:var(--blue); color:#fff;
+    font-size:17px; font-weight:600; letter-spacing:-.02em; box-shadow:0 1px 1px rgba(0,0,0,.08), 0 6px 18px color-mix(in srgb, var(--blue) 30%, transparent);
+    transition:transform .18s var(--ease), filter .15s; }
+  #scan:hover { filter:brightness(1.06); }
+  #scan:active { transform:scale(.975); filter:brightness(.94); transition-duration:.08s; }
+  #scan:disabled { filter:saturate(.4) brightness(.95); opacity:.7; }
+  #scan small { display:block; margin-top:1px; font-size:11.5px; font-weight:400; letter-spacing:0; opacity:.78; }
+
+  .seg { position:relative; display:grid; grid-template-columns:1fr 1fr; padding:2px; border-radius:9px; background:var(--field); }
+  .seg button { position:relative; z-index:1; height:28px; border:none; border-radius:7px; background:transparent; font-size:12.5px; color:var(--ink2); transition:color .2s; }
+  .seg button.on { color:var(--ink); font-weight:500; background:var(--group); box-shadow:0 1px 2px rgba(0,0,0,.1), 0 0 0 .5px rgba(0,0,0,.05); }
+  .seg button:active:not(.on) { background:color-mix(in srgb, var(--ink) 6%, transparent); }
+  .tip { margin:-10px 4px 0; font-size:11.5px; color:var(--ink2); }
+  .tip:empty { display:none; }
+
+  .sect { font-size:11px; font-weight:600; letter-spacing:.02em; color:var(--ink3); text-transform:uppercase; margin:0 12px 6px; }
+  .group { background:var(--group); border-radius:12px; box-shadow:var(--lift); }
+
+  #form { display:none; }
+  .status { display:inline-flex; align-items:center; gap:7px; margin:0 4px 10px; font-size:12.5px; font-weight:500; color:var(--ink2); }
+  .status::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--ink3); }
+  .status.ok { color:var(--green); } .status.ok::before { background:var(--green); }
+  .status.busy::before { display:none; }
+  .spin { width:13px; height:13px; flex:none; border-radius:50%; border:2px solid color-mix(in srgb, currentColor 25%, transparent); border-top-color:currentColor;
+    animation:spin .9s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .warn { margin:0 0 12px; padding:10px 12px 10px 36px; border-radius:11px; background:var(--orange-tint); color:var(--ink); font-size:12.5px; line-height:1.4; position:relative; }
+  .warn:empty { display:none; }
+  .warn::before { content:""; position:absolute; left:12px; top:11px; width:15px; height:15px; background:var(--orange);
+    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4m0 4h.01' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;
+            mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4m0 4h.01' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat; }
+  .warn div + div { margin-top:6px; }
+
+  /* Felder als gruppierte Zeilen wie in den Systemeinstellungen */
+  .field { display:grid; grid-template-columns:84px minmax(0, 1fr); align-items:center; min-height:42px; padding:0 6px 0 14px; position:relative; }
+  .field + .field::before { content:""; position:absolute; top:0; left:14px; right:0; height:.5px; background:var(--sep); }
+  .field.stack { grid-template-columns:1fr; padding:9px 6px 6px 14px; }
+  .field label { font-size:13px; color:var(--ink); }
+  .field.stack label { font-size:12px; color:var(--ink2); }
+  .field label small { color:var(--ink3); font-size:11.5px; }
+  .field input { width:100%; min-width:0; height:30px; padding:0 8px; border:none; border-radius:7px; background:transparent; font-size:13.5px; text-align:right;
+    transition:background .15s, box-shadow .15s; }
+  .field.stack input { text-align:left; padding:0 8px 0 0; }
+  .field input:hover { background:var(--field); }
+  .field input:focus { outline:none; background:var(--field); box-shadow:0 0 0 3px color-mix(in srgb, var(--blue) 35%, transparent); padding-left:8px; }
+  .field input#f_amount { font-variant-numeric:tabular-nums; }
+  input[type=date]::-webkit-calendar-picker-indicator { opacity:.5; }
+
+  .fname { display:flex; align-items:center; gap:7px; margin:10px 4px 0; font:11.5px/1.35 ui-monospace, "SF Mono", Menlo, monospace; color:var(--ink2); word-break:break-all; }
+  .fname::before { content:""; flex:none; width:12px; height:14px; border-radius:2px; border:1.4px solid currentColor; opacity:.7; }
+
+  .actions { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:30px; padding:0 13px; border:none; border-radius:8px;
+    background:var(--field); font-size:13px; font-weight:500; transition:transform .15s var(--ease), background .12s, opacity .15s; }
+  .btn:hover { background:color-mix(in srgb, var(--ink) 9%, transparent); }
+  .btn:active:not(:disabled) { transform:scale(.96); background:color-mix(in srgb, var(--ink) 14%, transparent); transition-duration:.06s; }
+  .btn:disabled { opacity:.4; }
+  .btn.primary { background:var(--blue-tint); color:var(--blue); }
+  .btn.primary:hover { background:color-mix(in srgb, var(--blue) 18%, transparent); }
+  .btn.danger { color:var(--red); }
+  .btn.solid { background:var(--blue); color:#fff; }
+  .btn.solid:hover { filter:brightness(1.07); background:var(--blue); }
+
+  details { margin-top:14px; }
+  details summary { list-style:none; display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--ink2); padding:2px 4px; border-radius:5px; }
+  details summary::-webkit-details-marker { display:none; }
+  details summary::before { content:"›"; display:inline-block; font-size:15px; line-height:1; transition:transform .25s var(--ease); }
+  details[open] summary::before { transform:rotate(90deg); }
+  pre { white-space:pre-wrap; font:11px/1.5 ui-monospace, "SF Mono", Menlo, monospace; max-height:200px; overflow:auto; margin:8px 0 0; padding:10px 12px;
+    border-radius:10px; background:var(--group); box-shadow:var(--lift); color:var(--ink2); }
+
+  /* Sitzungsliste */
+  #session { display:none; }
+  .shead { display:flex; justify-content:space-between; align-items:flex-end; margin:0 12px 8px; }
+  .shead span { font-size:11px; font-weight:600; letter-spacing:.02em; color:var(--ink3); text-transform:uppercase; }
+  .shead b { font-size:22px; font-weight:600; letter-spacing:-.025em; line-height:1; font-variant-numeric:tabular-nums; }
+  #list { padding:5px; }
+  .item { display:flex; align-items:center; gap:11px; width:100%; padding:6px 9px 6px 6px; border:none; border-radius:8px; background:transparent; text-align:left;
+    transition:background .12s; }
+  .item:hover { background:var(--field); }
+  .item:active { background:color-mix(in srgb, var(--ink) 10%, transparent); }
+  .item.sel { background:var(--blue); color:#fff; }
+  .item.sel .t .b, .item.sel .amt { color:rgba(255,255,255,.82); }
+  .item img { width:34px; height:44px; object-fit:cover; object-position:top; border-radius:4px; background:#fff; box-shadow:0 0 0 .5px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.1); flex:none; }
+  .item .t { flex:1; min-width:0; } .item .t div { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .item .t .a { font-weight:500; font-size:13.5px; } .item .t .b { font-size:12px; color:var(--ink2); }
+  .item .amt { font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--ink2); }
+  .item .dot { width:7px; height:7px; border-radius:50%; flex:none; box-shadow:inset 0 0 0 1.4px var(--ink3); }
+  .item .dot.ok { background:var(--green); box-shadow:none; }
+  .item.sel .dot { box-shadow:inset 0 0 0 1.4px rgba(255,255,255,.7); } .item.sel .dot.ok { background:#fff; box-shadow:none; }
+
+  /* Meldung: Kapsel, die von unten einschwebt */
+  #toast { position:fixed; left:50%; bottom:24px; z-index:30; display:flex; align-items:center; gap:10px; max-width:min(540px, calc(100vw - 32px));
+    padding:11px 18px 11px 14px; border-radius:16px; background:var(--sheet); color:var(--ink); font-size:13px; font-weight:500;
+    backdrop-filter:blur(28px) saturate(180%); -webkit-backdrop-filter:blur(28px) saturate(180%);
+    box-shadow:0 0 0 .5px var(--hair), 0 12px 40px rgba(0,0,0,.18);
+    transform:translate(-50%, 24px) scale(.96); opacity:0; pointer-events:none; transition:transform .5s var(--ease), opacity .25s; }
+  #toast::before { content:"!"; flex:none; width:20px; height:20px; border-radius:50%; display:grid; place-items:center; background:var(--red); color:#fff; font-weight:700; font-size:12px; }
+  #toast.show { transform:translate(-50%, 0) scale(1); opacity:1; pointer-events:auto; }
+
+  /* ---------- Einstellungen: Blatt mit gruppierten Schaltern */
+  dialog { padding:0; border:none; color:var(--ink); background:var(--sheet);
+    backdrop-filter:blur(40px) saturate(180%); -webkit-backdrop-filter:blur(40px) saturate(180%);
+    box-shadow:0 0 0 .5px var(--hair), 0 24px 80px rgba(0,0,0,.3); }
+  dialog[open] { animation:materialize .42s var(--ease); }
+  @keyframes materialize { from { opacity:0; transform:scale(.94); filter:blur(6px); } }
+  dialog::backdrop { background:rgba(0,0,0,.28); animation:fade .3s ease; }
+  @keyframes fade { from { opacity:0; } }
+  #dlg { width:min(460px, calc(100vw - 32px)); border-radius:16px; padding:22px 20px 18px; }
+  #dlg h3 { margin:0 0 16px; text-align:center; font-size:15px; font-weight:600; letter-spacing:-.016em; }
+  #dlg .group { margin-bottom:12px; }
+  .opt-row { display:flex; align-items:center; gap:12px; min-height:46px; padding:8px 12px 8px 14px; position:relative; }
+  .opt-row + .opt-row::before { content:""; position:absolute; top:0; left:14px; right:0; height:.5px; background:var(--sep); }
+  .opt-row > span { flex:1; font-size:13px; } .opt-row small { display:block; color:var(--ink2); font-size:11.5px; line-height:1.35; margin-top:1px; }
+  .opt-row select, .opt-row input[type=text] { width:190px; height:26px; padding:0 8px; border:none; border-radius:6px; background:var(--field); font-size:12.5px; }
+  .opt-row input[type=text]:focus, .opt-row select:focus { outline:none; box-shadow:0 0 0 3px color-mix(in srgb, var(--blue) 35%, transparent); }
+  .switch { appearance:none; -webkit-appearance:none; flex:none; width:38px; height:22px; margin:0; border-radius:999px; background:color-mix(in srgb, var(--ink) 16%, transparent);
+    position:relative; transition:background .25s var(--ease); }
+  .switch::after { content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#fff;
+    box-shadow:0 1px 3px rgba(0,0,0,.25), 0 0 0 .5px rgba(0,0,0,.04); transition:transform .3s var(--ease); }
+  .switch:checked { background:var(--green); }
+  .switch:checked::after { transform:translateX(16px); }
+  .dlg-foot { display:flex; justify-content:flex-end; margin-top:16px; }
+
+  /* ---------- Zuschneiden: dunkler Bearbeitungsmodus */
+  #crop { width:min(1240px, calc(100vw - 32px)); max-width:none; height:calc(100vh - 40px); max-height:none; border-radius:18px; overflow:hidden;
+    background:#1c1c1e; color:#f5f5f7; color-scheme:dark; box-shadow:0 0 0 .5px rgba(255,255,255,.1), 0 30px 90px rgba(0,0,0,.5); }
+  #crop[open] { display:flex; flex-direction:column; }
+  .chead { display:flex; align-items:center; gap:14px; height:52px; padding:0 14px 0 18px; background:rgba(44,44,46,.9); box-shadow:0 .5px 0 rgba(255,255,255,.08); }
+  .chead h3 { margin:0; font-size:15px; font-weight:600; letter-spacing:-.016em; }
+  .chead .sp { flex:1; }
+  .cbody { flex:1; min-height:0; display:grid; place-items:center; padding:40px 24px 18px; overflow:auto; background:#121214; }
+  .chint { padding:10px 18px 0; background:#121214; text-align:center; font-size:12px; color:rgba(245,245,247,.55); }
+  .cv { position:relative; line-height:0; cursor:crosshair; touch-action:none; user-select:none; -webkit-user-select:none; }
+  .cv img { display:block; max-width:calc(min(1240px, 100vw - 32px) - 48px); max-height:calc(100vh - 230px); background:#fff; pointer-events:none; -webkit-user-drag:none;
+    box-shadow:0 10px 40px rgba(0,0,0,.6); }
+  .cv svg.dim { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .cv svg.dim path { fill:rgba(0,0,0,.5); fill-rule:evenodd; transition:fill .2s; }
+  .cbox { position:absolute; box-shadow:0 0 0 1px rgba(255,255,255,.9), 0 0 0 2px rgba(0,0,0,.25); cursor:move; }
+  .cbox.sel { box-shadow:0 0 0 2px #ffd60a, 0 0 0 3px rgba(0,0,0,.3); z-index:2; }
+  .cbox .n { position:absolute; left:0; top:-30px; height:22px; padding:0 9px; border-radius:999px; pointer-events:none;
+    background:rgba(28,28,30,.82); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); color:#fff;
+    font:600 11.5px/22px -apple-system, system-ui, sans-serif; white-space:nowrap; box-shadow:0 0 0 .5px rgba(255,255,255,.18); }
+  .cbox.sel .n { background:#ffd60a; color:#1c1c1e; }
+  .cbox .x { position:absolute; right:0; top:-30px; width:22px; height:22px; padding:0; border:none; border-radius:50%; z-index:3;
+    background:#3a3a3c; color:#fff; font:600 14px/22px -apple-system, system-ui, sans-serif; box-shadow:0 0 0 1px rgba(255,255,255,.25), 0 2px 6px rgba(0,0,0,.4);
+    transition:transform .15s var(--ease), background .12s; }
+  .cbox .x:hover { background:var(--red); }
+  .cbox .x:active { transform:scale(.88); }
+  /* Griffe: Eckwinkel und kurze Kantenbalken wie beim Zuschneiden in Fotos, mit grosszuegiger Trefferflaeche */
+  .cbox i { position:absolute; --c:#fff; }
+  .cbox.sel i { --c:#ffd60a; }
+  .cbox i::before { content:""; position:absolute; inset:-10px; }
+  .h-nw, .h-ne, .h-se, .h-sw { width:20px; height:20px; border:0 solid var(--c); }
+  .h-nw { left:-4px; top:-4px; border-width:4px 0 0 4px; cursor:nwse-resize; }
+  .h-ne { right:-4px; top:-4px; border-width:4px 4px 0 0; cursor:nesw-resize; }
+  .h-se { right:-4px; bottom:-4px; border-width:0 4px 4px 0; cursor:nwse-resize; }
+  .h-sw { left:-4px; bottom:-4px; border-width:0 0 4px 4px; cursor:nesw-resize; }
+  .h-n, .h-s { left:50%; width:26px; height:4px; margin-left:-13px; background:var(--c); border-radius:2px; cursor:ns-resize; }
+  .h-n { top:-3px; } .h-s { bottom:-3px; }
+  .h-e, .h-w { top:50%; width:4px; height:26px; margin-top:-13px; background:var(--c); border-radius:2px; cursor:ew-resize; }
+  .h-e { right:-3px; } .h-w { left:-3px; }
+  .cfoot { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:12px 14px; background:rgba(44,44,46,.9); box-shadow:0 -.5px 0 rgba(255,255,255,.08); }
+  .cfoot .sp { flex:1; }
+  #crop .btn { background:rgba(255,255,255,.1); color:#f5f5f7; }
+  #crop .btn:hover { background:rgba(255,255,255,.16); }
+  #crop .btn.solid { background:#ffd60a; color:#1c1c1e; }
+  #crop .btn.solid:hover { background:#ffdf3d; filter:none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:.001s !important; animation-iteration-count:1 !important; transition-duration:.12s !important; }
+    #beam::after { display:none; }
+    .btn:active, #scan:active { transform:none !important; }
+    .spin { animation:spin 1.6s linear infinite !important; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><img src="/icon.png" alt="">Belegscanner</div>
+  <div class="folder"><button class="path" id="choose" title="Ablageordner ändern">
+    <svg class="sym" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><b id="folder"></b></button></div>
+  <button class="tool opt" id="open">Im Finder zeigen</button>
+  <button class="tool" id="settings" title="Einstellungen">
+    <svg class="sym" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Einstellungen</button>
+  <button class="tool" id="quit" title="Belegscanner beenden">Beenden</button>
+</header>
+
+<main>
+  <section id="stage">
+    <div id="pages"></div>
+    <div id="beam"><span><i class="spin"></i>Scanne…</span></div>
+  </section>
+
+  <aside>
+    <div>
+      <button id="scan"><span id="scanlabel">Scannen</span><small>Leertaste · bestätigt den vorherigen Beleg</small></button>
+    </div>
+    <div class="seg" role="group" aria-label="Scanmodus">
+      <button id="m_single">Ein Beleg</button>
+      <button id="m_multi">Mehrere auf dem Glas</button>
+    </div>
+    <p class="tip" id="tip"></p>
+
+    <div id="form">
+      <div class="status" id="status"></div>
+      <div class="warn" id="warn"></div>
+      <div class="group">
+        <div class="field"><label for="f_date">Datum</label><input type="date" id="f_date"></div>
+        <div class="field"><label for="f_amount">Betrag</label><input type="text" id="f_amount" inputmode="decimal" placeholder="0,00 €"></div>
+        <div class="field"><label for="f_merchant">Händler</label><input type="text" id="f_merchant" placeholder="z. B. Aral"></div>
+        <div class="field"><label for="f_kind">Art</label><input type="text" id="f_kind" placeholder="z. B. Tanken"></div>
+        <div class="field stack"><label for="f_note">Notiz <small>– bei Bewirtung: Anlass; bewirtete Personen</small></label><input type="text" id="f_note" placeholder="Keine Notiz"></div>
+      </div>
+      <div class="fname" id="fname"></div>
+      <div class="actions">
+        <button class="btn primary" id="confirm">Passt ✓</button>
+        <button class="btn" id="cropbtn">
+          <svg class="sym" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14"/></svg>Zuschneiden</button>
+        <button class="btn" id="append">+ Seite</button>
+        <button class="btn" id="reanalyse">Neu analysieren</button>
+        <button class="btn danger" id="delete">Löschen</button>
+      </div>
+      <details><summary>Erkannter Text</summary><pre id="ocr"></pre></details>
+    </div>
+
+    <div id="session">
+      <div class="shead"><span id="count"></span><b id="total"></b></div>
+      <div class="group" id="list"></div>
+    </div>
+  </aside>
+</main>
+
+<div id="toast" role="alert"></div>
+
+<dialog id="dlg">
+  <h3>Einstellungen</h3>
+  <div class="group">
+    <label class="opt-row"><span>Auflösung</span>
+      <select id="c_dpi"><option value="200">200 dpi – schneller</option><option value="300">300 dpi – empfohlen</option><option value="400">400 dpi – sehr fein</option></select></label>
+    <label class="opt-row"><span>In Farbe scannen<small>Aus = Graustufen, kleinere Dateien</small></span><input type="checkbox" class="switch" id="c_color"></label>
+    <label class="opt-row"><span>Beleg per Claude analysieren<small>Das Belegbild wird an Anthropic gesendet. Aus = nur lokale Mustererkennung.</small></span><input type="checkbox" class="switch" id="c_ki"></label>
+  </div>
+  <div class="group">
+    <label class="opt-row"><span>Scanner-Adresse</span><input type="text" id="c_scanner" spellcheck="false"></label>
+  </div>
+  <div class="dlg-foot"><button class="btn solid" id="dlg_close">Fertig</button></div>
+</dialog>
+
+<dialog id="crop">
+  <div class="chead">
+    <h3>Zuschneiden</h3><span class="sp"></span>
+    <button class="btn" id="crop_full">Ganzer Scan</button>
+    <button class="btn" id="crop_auto">Automatisch</button>
+  </div>
+  <div class="chint" id="crop_hint"></div>
+  <div class="cbody"><div class="cv" id="crop_cv"><img id="crop_img" alt="Originalscan"><svg class="dim" id="crop_dim" preserveAspectRatio="none"><path/></svg></div></div>
+  <div class="cfoot">
+    <span class="sp"></span>
+    <button class="btn" id="crop_cancel">Abbrechen</button>
+    <button class="btn solid" id="crop_ok">Übernehmen</button>
+  </div>
+</dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+let state = null, sel = null, busy = false, shown = null, toastTimer = null, stopped = false;
+const FIELDS = ["date", "amount", "merchant", "kind", "note"];
+const EMPTY = `<div class="empty"><div class="glyph"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></div>
+  <h2>Beleg auflegen</h2>Bedruckte Seite nach unten aufs Glas legen und <b>Scannen</b> drücken – oder einfach <kbd>Leertaste</kbd>.</div>`;
+
+async function post(path, data = {}) {
+  try {
+    const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
+    const j = await r.json();
+    if (j.error) toast(j.error);
+    return j;
+  } catch (e) { toast("Belegscanner antwortet nicht – bitte neu starten."); return {}; }
+}
+function toast(msg) {
+  $("toast").textContent = msg; $("toast").classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("show"), 7000);
+}
+$("toast").onclick = () => $("toast").classList.remove("show");
+
+async function refresh() {
+  if (stopped) return;
+  try { state = await (await fetch("/api/state")).json(); } catch (e) { return; }
+  render();
+}
+const euro = n => n.toLocaleString("de-DE", {minimumFractionDigits: 2, maximumFractionDigits: 2}) + " €";
+const num = s => { const v = parseFloat(String(s || "").replace(/[^\d,.-]/g, "").replace(/\.(?=\d{3})/g, "").replace(",", ".")); return isNaN(v) ? null : v; };
+const deDate = d => d ? d.split("-").reverse().join(".") : "ohne Datum";
+
+function render() {
+  const c = state.config;
+  // \u200E: Pfad bleibt bei der Kuerzung von links (direction:rtl) in Lese-Reihenfolge
+  $("folder").textContent = "\u200E" + c.base_dir.replace(/^\/Users\/[^/]+/, "~") + "/" + state.today + "\u200E";
+  if (!$("dlg").open) { $("c_scanner").value = c.scanner; $("c_dpi").value = c.dpi; $("c_color").checked = c.color; $("c_ki").checked = c.ki; }
+  $("m_single").classList.toggle("on", !c.multi); $("m_multi").classList.toggle("on", c.multi);
+  $("tip").textContent = c.multi ? "Belege mit mindestens 3 cm Abstand zueinander und 1 cm zum Glasrand auflegen – jeder wird eine eigene Datei." : "";
+
+  const rs = state.receipts;
+  if (!rs.find(r => r.id === sel)) sel = rs.length ? rs[rs.length - 1].id : null;
+  const cur = rs.find(r => r.id === sel);
+
+  document.body.classList.toggle("scanning", busy);
+  $("scan").disabled = busy;
+  $("scanlabel").textContent = busy ? "Scanne…" : "Scannen";
+  $("form").style.display = cur ? "block" : "none";
+  $("session").style.display = rs.length ? "block" : "none";
+
+  if (cur) {
+    const key = cur.id + ":" + cur.version;
+    if (shown !== key) {
+      shown = key;
+      $("pages").innerHTML = Array.from({length: cur.pages}, (_, i) => `<img src="/img/${cur.id}/${i}?v=${cur.version}" alt="Beleg, Seite ${i + 1}">`
+        + (cur.pages > 1 ? `<button class="btn pagecrop" data-page="${i}">Seite ${i + 1} zuschneiden</button>` : "")).join("")
+        + (cur.empty ? '<div class="empty">Auf dem Scan ist nichts zu erkennen – lag der Beleg richtig herum?</div>' : "");
+      $("pages").scrollTop = 0;
+    }
+    for (const f of FIELDS) { const el = $("f_" + f); if (document.activeElement !== el) el.value = cur.fields[f]; }
+    const st = $("status");
+    if (cur.status === "analyzing") { st.innerHTML = '<i class="spin"></i>Beleg wird analysiert…'; st.className = "status busy"; }
+    else if (cur.confirmed) { st.textContent = "Bestätigt und abgelegt"; st.className = "status ok"; }
+    else { st.textContent = "Vorschlag – der nächste Scan bestätigt automatisch"; st.className = "status"; }
+    $("fname").textContent = cur.file;
+    $("warn").innerHTML = "";
+    for (const w of cur.status === "analyzing" ? [] : cur.warn) { const d = document.createElement("div"); d.textContent = w; $("warn").appendChild(d); }
+    $("ocr").textContent = cur.ocr || "–";
+    $("confirm").disabled = cur.confirmed;
+    $("append").disabled = busy;
+    $("cropbtn").disabled = busy;
+  } else if (shown !== "empty") { shown = "empty"; $("pages").innerHTML = EMPTY; }
+
+  let total = 0;
+  $("list").innerHTML = "";
+  for (const r of [...rs].reverse()) {
+    const v = num(r.fields.amount); if (v !== null) total += v;
+    const b = document.createElement("button");
+    b.className = "item" + (r.id === sel ? " sel" : "");
+    b.innerHTML = `<img src="/img/${r.id}/0?v=${r.version}" alt=""><div class="t"><div class="a"></div><div class="b"></div></div><span class="amt"></span>${r.status === "analyzing" ? '<i class="spin"></i>' : `<i class="dot ${r.confirmed ? "ok" : ""}"></i>`}`;
+    b.querySelector(".a").textContent = r.fields.merchant || (r.status === "analyzing" ? "Wird analysiert…" : "Beleg");
+    b.querySelector(".b").textContent = [deDate(r.fields.date), r.fields.kind].filter(Boolean).join(" · ");
+    b.querySelector(".amt").textContent = v !== null ? euro(v) : "";
+    b.onclick = async () => { await saveFields(); sel = r.id; render(); };
+    $("list").appendChild(b);
+  }
+  $("count").textContent = rs.length === 1 ? "1 Beleg in dieser Sitzung" : rs.length + " Belege in dieser Sitzung";
+  $("total").textContent = euro(total);
+}
+
+async function scan(appendTo) {
+  if (busy || !state) return;
+  await saveFields();
+  busy = true; render();
+  const r = await post("/api/scan", appendTo ? {append_to: appendTo} : {});
+  busy = false;
+  if (r.ids && r.ids.length) sel = r.ids[0];
+  await refresh();
+}
+
+async function saveFields() {
+  const cur = state && state.receipts.find(r => r.id === sel);
+  if (!cur) return;
+  const data = {id: cur.id}; let changed = false;
+  for (const f of FIELDS) { data[f] = $("f_" + f).value; if (data[f] !== cur.fields[f]) changed = true; }
+  if (changed) { await post("/api/update", data); await refresh(); }
+}
+const setCfg = async data => { await post("/api/config", data); refresh(); };
+
+$("scan").onclick = () => scan();
+$("append").onclick = () => scan(sel);
+$("confirm").onclick = async () => { await saveFields(); await post("/api/confirm", {id: sel}); refresh(); };
+$("reanalyse").onclick = async () => { await post("/api/reanalyse", {id: sel}); refresh(); };
+$("delete").onclick = async () => { await post("/api/delete", {id: sel}); shown = null; refresh(); };
+$("choose").onclick = async () => { await post("/api/choose_folder"); refresh(); };
+$("open").onclick = () => post("/api/open_folder");
+$("m_single").onclick = () => setCfg({multi: false});
+$("m_multi").onclick = () => setCfg({multi: true});
+$("settings").onclick = () => $("dlg").showModal();
+$("dlg_close").onclick = () => $("dlg").close();
+$("dlg").addEventListener("close", () => setCfg({dpi: +$("c_dpi").value, color: $("c_color").checked, ki: $("c_ki").checked, scanner: $("c_scanner").value}));
+$("quit").onclick = async () => {
+  await saveFields(); stopped = true; await post("/api/quit");
+  document.querySelector("main").innerHTML = '<div class="empty" style="grid-column:1/-1; padding:80px 0"><h2>Belegscanner beendet</h2>Dieses Fenster kannst du schließen.</div>';
+};
+for (const f of FIELDS) {
+  $("f_" + f).addEventListener("change", saveFields);
+  $("f_" + f).addEventListener("keydown", e => { if (e.key === "Enter") e.target.blur(); });
+}
+document.addEventListener("keydown", e => {
+  if (e.code !== "Space" || $("dlg").open || $("crop").open || stopped) return;
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
+  e.preventDefault(); scan();
+});
+// ---------------------------------------------------------------- Zuschneiden
+// Bereiche werden in Pixeln des Originalscans gehalten und prozentual ueber das Bild gelegt.
+let crop = null, drag = null;
+const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
+async function openCrop(page) {
+  await saveFields();
+  const r = await post("/api/crop_info", {id: sel, page});
+  if (!r.stamp) return;
+  crop = {...r, boxes: r.boxes.map(b => [...b]), sel: -1};
+  $("crop_img").src = `/raw/${r.stamp}`;
+  $("crop_hint").textContent = (r.single ? "Angehängte Seite: genau ein Bereich" : "Jeder Rahmen wird ein eigener Beleg")
+    + " · Ins Bild ziehen für einen neuen Rahmen · an Ecken und Kanten anpassen · Entf löscht";
+  drawCrop();
+  $("crop").showModal();
+}
+
+function drawCrop() {
+  const cv = $("crop_cv");
+  cv.querySelectorAll(".cbox").forEach(e => e.remove());
+  crop.boxes.forEach((b, i) => {
+    const d = document.createElement("div");
+    d.className = "cbox" + (i === crop.sel ? " sel" : "");
+    d.dataset.i = i;
+    Object.assign(d.style, {left: b[0] / crop.w * 100 + "%", top: b[1] / crop.h * 100 + "%",
+      width: (b[2] - b[0]) / crop.w * 100 + "%", height: (b[3] - b[1]) / crop.h * 100 + "%"});
+    d.innerHTML = `<span class="n">${crop.boxes.length > 1 ? "Beleg " + (i + 1) : "Beleg"}</span>`
+      + `<button class="x" data-del="${i}" title="Bereich entfernen" aria-label="Bereich entfernen">×</button>`
+      + HANDLES.map(h => `<i class="h-${h}" data-h="${h}"></i>`).join("");
+    cv.appendChild(d);
+  });
+  const dim = $("crop_dim");  // alles ausserhalb der Rahmen abdunkeln
+  dim.setAttribute("viewBox", `0 0 ${crop.w} ${crop.h}`);
+  dim.firstElementChild.setAttribute("d", `M0 0H${crop.w}V${crop.h}H0Z` + crop.boxes.map(b => `M${b[0]} ${b[1]}H${b[2]}V${b[3]}H${b[0]}Z`).join(""));
+  $("crop_ok").disabled = !crop.boxes.length;
+}
+
+function cropPoint(e) {
+  const r = $("crop_cv").getBoundingClientRect();
+  const clamp = v => Math.min(Math.max(v, 0), 1);
+  return [clamp((e.clientX - r.left) / r.width) * crop.w, clamp((e.clientY - r.top) / r.height) * crop.h];
+}
+
+$("crop_cv").addEventListener("pointerdown", e => {
+  if (e.button !== 0 || !crop) return;
+  e.preventDefault();
+  if (e.target.dataset.del !== undefined) { crop.boxes.splice(+e.target.dataset.del, 1); crop.sel = -1; drawCrop(); return; }
+  const p = cropPoint(e), box = e.target.closest(".cbox");
+  if (box) {
+    crop.sel = +box.dataset.i;
+    drag = {h: e.target.dataset.h || "move", start: p, orig: [...crop.boxes[crop.sel]]};
+  } else {
+    if (crop.single) crop.boxes = [];
+    crop.boxes.push([p[0], p[1], p[0], p[1]]);
+    crop.sel = crop.boxes.length - 1;
+    drag = {h: "se", start: p, orig: [p[0], p[1], p[0], p[1]], fresh: true};
+  }
+  $("crop_cv").setPointerCapture(e.pointerId);
+  drawCrop();
+});
+
+$("crop_cv").addEventListener("pointermove", e => {
+  if (!drag) return;
+  const p = cropPoint(e);
+  let [x0, y0, x1, y1] = drag.orig, dx = p[0] - drag.start[0], dy = p[1] - drag.start[1];
+  if (drag.h === "move") {
+    dx = Math.min(Math.max(dx, -x0), crop.w - x1); dy = Math.min(Math.max(dy, -y0), crop.h - y1);
+    x0 += dx; x1 += dx; y0 += dy; y1 += dy;
+  } else {
+    if (drag.h.includes("w")) x0 += dx;
+    if (drag.h.includes("e")) x1 += dx;
+    if (drag.h.includes("n")) y0 += dy;
+    if (drag.h.includes("s")) y1 += dy;
+    [x0, x1] = [x0, x1].map(v => Math.min(Math.max(v, 0), crop.w));
+    [y0, y1] = [y0, y1].map(v => Math.min(Math.max(v, 0), crop.h));
+  }
+  crop.boxes[crop.sel] = [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)];
+  drawCrop();
+});
+
+const endDrag = () => {
+  if (!drag) return;
+  const b = crop.boxes[crop.sel];
+  if (drag.fresh && (b[2] - b[0] < crop.w * .03 || b[3] - b[1] < crop.h * .02)) { crop.boxes.splice(crop.sel, 1); crop.sel = -1; }
+  drag = null;
+  drawCrop();
+};
+$("crop_cv").addEventListener("pointerup", endDrag);
+$("crop_cv").addEventListener("pointercancel", endDrag);
+$("crop").addEventListener("keydown", e => {
+  if ((e.key === "Delete" || e.key === "Backspace") && crop.sel >= 0) { crop.boxes.splice(crop.sel, 1); crop.sel = -1; drawCrop(); e.preventDefault(); }
+});
+$("crop_full").onclick = () => { crop.boxes = [[0, 0, crop.w, crop.h]]; crop.sel = 0; drawCrop(); };
+$("crop_auto").onclick = () => { crop.boxes = crop.auto.slice(0, crop.single ? 1 : undefined).map(b => [...b]); crop.sel = -1; drawCrop(); };
+$("crop_cancel").onclick = () => $("crop").close();
+$("crop_ok").onclick = async () => {
+  $("crop_ok").disabled = true;
+  const r = await post("/api/recrop", {stamp: crop.stamp, boxes: crop.boxes});
+  $("crop_ok").disabled = false;
+  if (!r.ids) return;
+  $("crop").close();
+  sel = r.ids[0]; shown = null;
+  refresh();
+};
+$("cropbtn").onclick = () => openCrop(0);
+$("pages").addEventListener("click", e => { if (e.target.dataset.page) openCrop(+e.target.dataset.page); });
+
+refresh();
+setInterval(() => { if (!busy) refresh(); }, 1500);
+</script>
+</body>
+</html>
